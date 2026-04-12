@@ -151,8 +151,31 @@ fun ChatScreen(
 
 @Composable
 fun MessageBubble(m: Message, vm: ChatViewModel) {
-    // Для исходящих сообщений с вложениями используем pendingAtt
-    val attachments by vm.getAttachmentsForMessage(m.id).collectAsState(initial = emptyList())
+    // Получаем вложения из БД через Flow
+    val dbAttachments by vm.getAttachmentsForMessage(m.id).collectAsState(initial = emptyList())
+    
+    // Для исходящих сообщений также проверяем pending attachments если сообщение свежее
+    val pendingUris = vm.getPendingAttachments()
+    val isFreshOutgoing = m.isOutgoing && (System.currentTimeMillis() - m.timestamp < 5000)
+    
+    // Объединяем вложения из БД и pending для свежих исходящих
+    val attachments = if (isFreshOutgoing && pendingUris.isNotEmpty()) {
+        // Для свежих исходящих используем pending URI как временные вложения
+        pendingUris.map { uri ->
+            Attachment(
+                id = uri.toString(),
+                messageId = m.id,
+                fileName = uri.toString().substringAfterLast("/"),
+                mimeType = "image/*",
+                fileSize = 0,
+                localPath = uri.toString(),
+                isImage = true
+            )
+        }
+    } else {
+        dbAttachments
+    }
+    
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (m.isOutgoing) Arrangement.End else Arrangement.Start
@@ -168,26 +191,35 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
                 }
                 
                 // Отображение вложений
-                // Удалено - уже определено выше
-                
                 if (attachments.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(attachments) { att ->
-                            val imageFile = File(att.localPath)
                             Box(modifier = Modifier.size(80.dp)) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(imageFile)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = att.fileName,
-                                    modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
-                                    contentScale = ContentScale.Crop
-                                )
                                 if (att.isImage) {
+                                    val imageFile = File(att.localPath)
+                                    val imageModel = if (imageFile.exists()) {
+                                        imageFile as Any
+                                    } else {
+                                        // Пробуем как URI для pending
+                                        try {
+                                            Uri.parse(att.localPath)
+                                        } catch (e: Exception) {
+                                            att.localPath
+                                        }
+                                    }
+                                    
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(imageModel)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = att.fileName,
+                                        modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
+                                        contentScale = ContentScale.Crop
+                                    )
                                     Icon(
                                         imageVector = Icons.Default.Image,
                                         contentDescription = "Image",
@@ -196,6 +228,14 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
                                             .size(20.dp)
                                             .background(MaterialTheme.colorScheme.surface, CircleShape),
                                         tint = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    // Не изображения - показываем иконку файла
+                                    Icon(
+                                        imageVector = Icons.Default.AttachFile,
+                                        contentDescription = att.fileName,
+                                        modifier = Modifier.fillMaxSize(),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
