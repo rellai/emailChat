@@ -96,6 +96,9 @@ interface ChatDao {
     @Query("SELECT * FROM attachments WHERE messageId = :messageId")
     suspend fun getAttachmentsForMessage(messageId: String): List<Attachment>
 
+    @Query("SELECT * FROM attachments WHERE messageId = :messageId")
+    fun getAttachmentsForMessageFlow(messageId: String): Flow<List<Attachment>>
+
     @Query("SELECT * FROM attachments WHERE messageId IN (:messageIds)")
     suspend fun getAttachmentsForMessages(messageIds: List<String>): List<Attachment>
 

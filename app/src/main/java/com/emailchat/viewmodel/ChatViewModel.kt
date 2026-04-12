@@ -53,12 +53,7 @@ class ChatViewModel(
         db.chatDao().getMessages(conversationId)
 
     fun getAttachmentsForMessage(messageId: String): Flow<List<Attachment>> =
-        callbackFlow {
-            val attachments = db.chatDao().getAttachmentsForMessage(messageId)
-            trySend(attachments)
-            // Можно добавить слушатель изменений в будущем
-            awaitClose { }
-        }
+        db.chatDao().getAttachmentsForMessageFlow(messageId)
 
     fun selectConversation(id: String) {
         _currentConversation.value = id
