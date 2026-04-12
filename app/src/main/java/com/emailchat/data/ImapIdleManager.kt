@@ -63,25 +63,23 @@ class ImapIdleManager(
         var delay = 2000L
         while (isRunning && coroutineContext.isActive) {
             try {
-                Log.d(TAG, "🔄 Подключение к ${account.imapHost}:${account.imapPort}...")
+                Log.d(TAG, "Подключение к ${account.imapHost}:${account.imapPort}...")
                 _status.emit("Подключение...")
                 connect()
-                Log.d(TAG, "✅ Подключено. Начинаем IDLE...")
+                Log.d(TAG, "Подключено. Начинаем IDLE...")
                 _status.emit("Ожидание сообщений...")
                 delay = 2000L
 
                 while (isRunning && folder?.isOpen == true) {
                     try {
-                        Log.d(TAG, "👂 Вызов folder.idle()...")
                         folder?.idle()
-                        Log.d(TAG, "🔁 IDLE вернулся (получены данные или таймаут)")
                     } catch (e: Exception) {
-                        Log.w(TAG, "⚠️ IDLE прерван: ${e.message}")
+                        Log.w(TAG, "IDLE прерван: ${e.message}")
                         break
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Соединение упало: ${e.message}", e)
+                Log.e(TAG, "Соединение упало: ${e.message}", e)
                 _status.emit("Переподключение...")
                 delay(delay)
                 delay = minOf(delay * 2, 60000L)
@@ -103,36 +101,35 @@ class ImapIdleManager(
         val session = Session.getInstance(props)
 
         store = session.getStore("imap") as IMAPStore
-        Log.d(TAG, "🔑 Логин: ${account.email}")
+        Log.d(TAG, "Логин: ${account.email}")
         store?.connect(account.imapHost, account.email, account.password)
-        Log.d(TAG, "✅ Авторизация успешна")
+        Log.d(TAG, "Авторизация успешна")
 
-        // ✅ ИСПРАВЛЕННАЯ СТРОКА безопасной проверкой:
-         folder = store?.getFolder("INBOX") as? IMAPFolder ?: throw IllegalStateException("INBOX folder not found")
+        folder = store?.getFolder("INBOX") as? IMAPFolder ?: throw IllegalStateException("INBOX folder not found")
 
         folder?.open(Folder.READ_ONLY)
-        Log.d(TAG, "📂 Папка INBOX открыта. Всего сообщений: ${folder?.messageCount}")
+        Log.d(TAG, "Папка INBOX открыта. Всего сообщений: ${folder?.messageCount}")
 
         folder?.addMessageCountListener(object : MessageCountAdapter() {
             override fun messagesAdded(e: MessageCountEvent) {
-                Log.d(TAG, "📩 Событиe messagesAdded: ${e.messages.size} новых")
+                Log.d(TAG, "Событиe messagesAdded: ${e.messages.size} новых")
                 if (!isRunning) {
-                    Log.w(TAG, "⚠️ Менеджер остановлен, пропускаем обработку")
+                    Log.w(TAG, "Менеджер остановлен, пропускаем обработку")
                     return
                 }
                 scope.launch {
                     try {
                         val new = e.messages.mapNotNull { msg ->
-                            Log.d(TAG, "🔍 Парсинг сообщения...")
+                            Log.d(TAG, "Парсинг сообщения...")
                             parseMessage(msg)
                         }
-                        Log.d(TAG, "✅ Распарсено ${new.size} сообщений (после фильтрации)")
+                        Log.d(TAG, "Распарсено ${new.size} сообщений (после фильтрации)")
                         if (new.isNotEmpty()) {
-                            Log.d(TAG, "📤 Передача в callback...")
+                            Log.d(TAG, "Передача в callback...")
                             onNewMessages(new)
                         }
                     } catch (ex: Exception) {
-                        Log.e(TAG, "❌ Ошибка обработки: ${ex.message}", ex)
+                        Log.e(TAG, "Ошибка обработки: ${ex.message}", ex)
                     }
                 }
             }
@@ -142,7 +139,7 @@ class ImapIdleManager(
     private fun parseMessage(msg: Message): ReceivedMessage? {
         return try {
             val fromStr = msg.from?.firstOrNull()?.toString() ?: run {
-                Log.w(TAG, "⚠️ Нет отправителя, пропускаем")
+                Log.w(TAG, "Нет отправителя, пропускаем")
                 return null
             }
             val from = InternetAddress.parse(fromStr)[0]
@@ -157,20 +154,20 @@ class ImapIdleManager(
             }
 
             if (contactEmail == account.email && msg.getHeader("X-Email-Chat").isNullOrEmpty()) {
-                Log.d(TAG, "⏭ Пропущено письмо самому себе без маркера чата")
+                Log.d(TAG, "Пропущено письмо самому себе без маркера чата")
                 return null
             }
 
             val content = extractContentAndAttachments(msg)
             val isChat = msg.getHeader("X-Email-Chat")?.isNotEmpty() == true
-            val acceptMessage = isChat // Принимаем только сообщения с маркером чата
+            val acceptMessage = isChat
 
             if (!acceptMessage) {
-                Log.d(TAG, "⏭ Пропущено письмо без маркера X-Email-Chat")
+                Log.d(TAG, "Пропущено письмо без маркера X-Email-Chat")
                 return null
             }
 
-            Log.d(TAG, "✅ Сообщение принято: from=${from.address}, to=${to?.address}, chat=$isChat")
+            Log.d(TAG, "Сообщение принято: from=${from.address}, to=${to?.address}, chat=$isChat")
 
             ReceivedMessage(
                 messageId = msg.getHeader("Message-ID")?.firstOrNull()?.trim('<', '>') ?: "",
@@ -185,7 +182,7 @@ class ImapIdleManager(
                 attachments = content.attachments
             )
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Parse error: ${e.message}", e)
+            Log.e(TAG, "Parse error: ${e.message}", e)
             null
         }
     }
@@ -203,7 +200,7 @@ class ImapIdleManager(
                         val part = content.getBodyPart(i)
                         if (part.isMimeType("text/plain")) {
                             text = part.content.toString()
-                            Log.d(TAG, "📝 Извлечён текст: ${text.take(50)}...")
+                            Log.d(TAG, "Извлечён текст: ${text.take(50)}...")
                         } else if (Part.ATTACHMENT.equals(part.disposition, true) || part.fileName != null) {
                             val rawFileName = part.fileName ?: "attachment_$i"
                             val fileName = MimeUtility.decodeText(rawFileName)
@@ -215,14 +212,14 @@ class ImapIdleManager(
                                 file.outputStream().use { output -> input.copyTo(output) }
                             }
                             attachments.add(ReceivedAttachment(fileName, mimeType, file.length(), file.absolutePath, mimeType.startsWith("image/")))
-                            Log.d(TAG, "📎 Вложение сохранено: $fileName (${file.length()} байт)")
+                            Log.d(TAG, "Вложение сохранено: $fileName (${file.length()} байт)")
                         }
                     }
                 }
-                else -> Log.w(TAG, "⚠️ Неизвестный тип контента: ${content::class}")
+                else -> Log.w(TAG, "Неизвестный тип контента: ${content::class}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Extract error: ${e.message}", e)
+            Log.e(TAG, "Extract error: ${e.message}", e)
         }
         return ContentExtractionResult(text, attachments)
     }
