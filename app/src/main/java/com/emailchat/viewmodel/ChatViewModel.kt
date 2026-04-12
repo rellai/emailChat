@@ -95,8 +95,8 @@ class ChatViewModel(
             Log.d("ChatVM", "💾 Сообщение сохранено локально: $msgId")
 
             // 4. Сохраняем вложения в БД с копированием во внутреннее хранилище
+            val attachmentEntities = mutableListOf<Attachment>()
             if (attachments.isNotEmpty()) {
-                val attachmentEntities = mutableListOf<Attachment>()
                 for (uri in attachments) {
                     try {
                         // Копируем файл во внутреннее хранилище
