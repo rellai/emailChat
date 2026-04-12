@@ -25,10 +25,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.emailchat.data.Attachment
 import com.emailchat.data.ChatDao
 import com.emailchat.data.Message
 import com.emailchat.viewmodel.ChatViewModel
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -194,9 +196,13 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(attachments) { att ->
+                            val imageFile = File(att.localPath)
                             Box(modifier = Modifier.size(80.dp)) {
                                 AsyncImage(
-                                    model = android.net.Uri.fromFile(java.io.File(att.localPath)),
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(imageFile)
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = att.fileName,
                                     modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
                                     contentScale = ContentScale.Crop
