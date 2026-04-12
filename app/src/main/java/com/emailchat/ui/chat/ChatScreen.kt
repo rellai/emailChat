@@ -82,26 +82,6 @@ fun ChatScreen(
                 items(msgs, key = { it.id }) { msg ->
                     MessageBubble(m = msg, vm = vm)
                 }
-                
-                // Отображение исходящих вложений, которые еще не отправлены
-                if (atts.isNotEmpty()) {
-                    item(key = "pending_attachments") {
-                        MessageBubble(
-                            m = Message(
-                                id = "pending_${System.currentTimeMillis()}",
-                                conversationId = id,
-                                text = "",
-                                timestamp = System.currentTimeMillis(),
-                                isOutgoing = true,
-                                isRead = true,
-                                serverUid = "",
-                                fromEmail = "",
-                                toEmail = ""
-                            ),
-                            vm = vm
-                        )
-                    }
-                }
             }
 
             // Превью прикреплённых файлов

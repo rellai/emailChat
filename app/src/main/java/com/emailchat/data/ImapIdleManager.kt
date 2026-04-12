@@ -59,7 +59,7 @@ class ImapIdleManager(
         scope.cancel()
     }
 
-    private suspend fun connectLoop() {
+    private fun connectLoop() {
         var delay = 2000L
         while (isRunning && coroutineContext.isActive) {
             try {
