@@ -77,97 +77,108 @@ class ChatViewModel(
             // 1. Генерируем уникальный ID сообщения
             val msgId = "msg_${System.currentTimeMillis()}_${(1000..9999).random()}"
 
-            // 2. Создаём объект сообщения
-            val newMessage = Message(
-                id = msgId,
-                conversationId = conversationId,
-                text = text,
-                timestamp = System.currentTimeMillis(),
-                isOutgoing = true,
-                isRead = true,
-                serverUid = "",
-                fromEmail = account.email,
-                toEmail = conversationId
-            )
+            // 2. Собираем текст сообщения
+            val messageText = text.trim()
 
-            // 3. СРАЗУ сохраняем в БД (OnConflictStrategy.REPLACE обновит, если есть дубль)
-            db.chatDao().insertMessage(newMessage)
-            Log.d("ChatVM", "💾 Сообщение сохранено локально: $msgId")
+            // 3. Создаём объект сообщения только если есть текст ИЛИ вложения
+            if (messageText.isNotBlank() || attachments.isNotEmpty()) {
+                val newMessage = Message(
+                    id = msgId,
+                    conversationId = conversationId,
+                    text = messageText,
+                    timestamp = System.currentTimeMillis(),
+                    isOutgoing = true,
+                    isRead = true,
+                    serverUid = "",
+                    fromEmail = account.email,
+                    toEmail = conversationId
+                )
 
-            // 4. Сохраняем вложения в БД с копированием во внутреннее хранилище
-            val attachmentEntities = mutableListOf<Attachment>()
-            if (attachments.isNotEmpty()) {
-                for (uri in attachments) {
-                    try {
-                        // Копируем файл во внутреннее хранилище
-                        val inputStream = ctx.contentResolver.openInputStream(uri)
-                        if (inputStream != null) {
-                            val fileName = uri.toString().substringAfterLast("/")
-                            val cacheDir = ctx.cacheDir.resolve("attachments")
-                            if (!cacheDir.exists()) cacheDir.mkdirs()
-                            val outFile = cacheDir.resolve("${msgId}_$fileName")
-                            
-                            inputStream.use { input ->
-                                outFile.outputStream().use { output ->
-                                    input.copyTo(output)
+                // 4. СРАЗУ сохраняем в БД
+                db.chatDao().insertMessage(newMessage)
+                Log.d("ChatVM", "💾 Сообщение сохранено локально: $msgId")
+
+                // 5. Сохраняем вложения в БД с копированием во внутреннее хранилище
+                val attachmentEntities = mutableListOf<Attachment>()
+                if (attachments.isNotEmpty()) {
+                    for (uri in attachments) {
+                        try {
+                            // Копируем файл во внутреннее хранилище
+                            val inputStream = ctx.contentResolver.openInputStream(uri)
+                            if (inputStream != null) {
+                                val fileName = uri.toString().substringAfterLast("/")
+                                val cacheDir = ctx.cacheDir.resolve("attachments")
+                                if (!cacheDir.exists()) cacheDir.mkdirs()
+                                val outFile = cacheDir.resolve("${msgId}_$fileName")
+                                
+                                inputStream.use { input ->
+                                    outFile.outputStream().use { output ->
+                                        input.copyTo(output)
+                                    }
                                 }
-                            }
-                            
-                            val mimeType = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
-                            val fileSize = outFile.length()
-                            
-                            attachmentEntities.add(
-                                Attachment(
-                                    messageId = msgId,
-                                    fileName = fileName,
-                                    mimeType = mimeType,
-                                    fileSize = fileSize,
-                                    localPath = outFile.absolutePath,
-                                    isImage = mimeType.startsWith("image/")
+                                
+                                val mimeType = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
+                                val fileSize = outFile.length()
+                                
+                                attachmentEntities.add(
+                                    Attachment(
+                                        messageId = msgId,
+                                        fileName = fileName,
+                                        mimeType = mimeType,
+                                        fileSize = fileSize,
+                                        localPath = outFile.absolutePath,
+                                        isImage = mimeType.startsWith("image/")
+                                    )
                                 )
-                            )
-                            Log.d("ChatVM", "📎 Файл скопирован: ${outFile.absolutePath}")
+                                Log.d("ChatVM", "📎 Файл скопирован: ${outFile.absolutePath}")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ChatVM", "❌ Ошибка копирования файла: ${e.message}", e)
                         }
-                    } catch (e: Exception) {
-                        Log.e("ChatVM", "❌ Ошибка копирования файла: ${e.message}", e)
+                    }
+                    if (attachmentEntities.isNotEmpty()) {
+                        db.chatDao().insertAttachments(attachmentEntities)
+                        Log.d("ChatVM", "📎 Вложения сохранены в БД: ${attachmentEntities.size}")
                     }
                 }
-                if (attachmentEntities.isNotEmpty()) {
-                    db.chatDao().insertAttachments(attachmentEntities)
-                    Log.d("ChatVM", "📎 Вложения сохранены в БД: ${attachmentEntities.size}")
-                }
+
+                // 6. СРАЗУ обновляем список чатов
+                updateConversation(conversationId, messageText, isOutgoing = true)
             }
 
-            // 5. СРАЗУ обновляем список чатов (чтобы пользователь видел сообщение мгновенно)
-            updateConversation(conversationId, text, isOutgoing = true)
+            // 7. Очищаем вложения СРАЗУ после сохранения в БД (до отправки)
+            clearAtt()
 
             try {
-                // 6. Отправляем через SMTP в фоне
+                // 8. Отправляем через SMTP в фоне
                 Log.d("ChatVM", "📤 Отправка на $conversationId...")
-                val realMessageId = client.sendMessage(conversationId, text, attachments)
+                val realMessageId = client.sendMessage(conversationId, messageText, attachments)
                 Log.d("ChatVM", "✅ Отправлено успешно. Message-ID: $realMessageId")
 
-                // 7. Опционально: обновляем ID в БД на реальный (если сервер вернул другой)
-                if (realMessageId != msgId && realMessageId.isNotBlank()) {
-                    db.chatDao().insertMessage(newMessage.copy(id = realMessageId))
+                // 9. Опционально: обновляем ID в БД на реальный (если сервер вернул другой)
+                if (attachments.isNotEmpty() && realMessageId != msgId && realMessageId.isNotBlank()) {
+                    db.chatDao().insertMessage(Message(
+                        id = realMessageId,
+                        conversationId = conversationId,
+                        text = messageText,
+                        timestamp = System.currentTimeMillis(),
+                        isOutgoing = true,
+                        isRead = true,
+                        serverUid = "",
+                        fromEmail = account.email,
+                        toEmail = conversationId
+                    ))
                     // Обновляем messageId у вложений
-                    if (attachmentEntities.isNotEmpty()) {
-                        val updatedAttachments = attachmentEntities.map {
-                            it.copy(messageId = realMessageId)
-                        }
-                        db.chatDao().insertAttachments(updatedAttachments)
-                        db.chatDao().deleteAttachmentsByMessage(msgId)
+                    val updatedAttachments = attachmentEntities.map {
+                        it.copy(messageId = realMessageId)
                     }
+                    db.chatDao().insertAttachments(updatedAttachments)
+                    db.chatDao().deleteAttachmentsByMessage(msgId)
                 }
-
-                // 8. Очищаем вложения после успешной отправки
-                clearAtt()
 
             } catch (e: Exception) {
                 // ⚠️ Сообщение УЖЕ в БД — пользователь его видит, даже если отправка упала
-                // При следующем запуске можно добавить повторную отправку (retry queue)
                 Log.e("ChatVM", "❌ Ошибка отправки: ${e.message}", e)
-                clearAtt() // Всё равно очищаем, чтобы не блокировать интерфейс
             }
         }
     }

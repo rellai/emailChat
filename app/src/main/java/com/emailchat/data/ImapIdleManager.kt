@@ -15,7 +15,6 @@ import javax.mail.event.MessageCountAdapter
 import javax.mail.Message
 import javax.mail.event.MessageCountEvent
 import javax.mail.internet.*
-import kotlin.coroutines.coroutineContext
 
 data class ReceivedAttachment(
     val fileName: String, val mimeType: String, val fileSize: Long,
@@ -61,7 +60,7 @@ class ImapIdleManager(
 
     private suspend fun connectLoop() {
         var delay = 2000L
-        while (isRunning && coroutineContext.isActive) {
+        while (isRunning) {
             try {
                 Log.d(TAG, "Подключение к ${account.imapHost}:${account.imapPort}...")
                 _status.emit("Подключение...")

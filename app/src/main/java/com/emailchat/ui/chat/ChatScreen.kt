@@ -154,28 +154,6 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
     // Получаем вложения из БД через Flow
     val dbAttachments by vm.getAttachmentsForMessage(m.id).collectAsState(initial = emptyList())
     
-    // Для исходящих сообщений также проверяем pending attachments если сообщение свежее
-    val pendingUris = vm.getPendingAttachments()
-    val isFreshOutgoing = m.isOutgoing && (System.currentTimeMillis() - m.timestamp < 5000)
-    
-    // Объединяем вложения из БД и pending для свежих исходящих
-    val attachments = if (isFreshOutgoing && pendingUris.isNotEmpty()) {
-        // Для свежих исходящих используем pending URI как временные вложения
-        pendingUris.map { uri ->
-            Attachment(
-                id = uri.toString(),
-                messageId = m.id,
-                fileName = uri.toString().substringAfterLast("/"),
-                mimeType = "image/*",
-                fileSize = 0,
-                localPath = uri.toString(),
-                isImage = true
-            )
-        }
-    } else {
-        dbAttachments
-    }
-    
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (m.isOutgoing) Arrangement.End else Arrangement.Start
@@ -191,24 +169,19 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
                 }
                 
                 // Отображение вложений
-                if (attachments.isNotEmpty()) {
+                if (dbAttachments.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(attachments) { att ->
+                        items(dbAttachments) { att ->
                             Box(modifier = Modifier.size(80.dp)) {
                                 if (att.isImage) {
                                     val imageFile = File(att.localPath)
                                     val imageModel = if (imageFile.exists()) {
                                         imageFile as Any
                                     } else {
-                                        // Пробуем как URI для pending
-                                        try {
-                                            Uri.parse(att.localPath)
-                                        } catch (e: Exception) {
-                                            att.localPath
-                                        }
+                                        att.localPath
                                     }
                                     
                                     AsyncImage(
