@@ -94,20 +94,48 @@ class ChatViewModel(
             db.chatDao().insertMessage(newMessage)
             Log.d("ChatVM", "💾 Сообщение сохранено локально: $msgId")
 
-            // 4. Сохраняем вложения в БД
+            // 4. Сохраняем вложения в БД с копированием во внутреннее хранилище
             if (attachments.isNotEmpty()) {
-                val attachmentEntities = attachments.map { uri ->
-                    Attachment(
-                        messageId = msgId,
-                        fileName = uri.toString().substringAfterLast("/"),
-                        mimeType = "image/*", // Упрощенно, в реальности нужно определять тип
-                        fileSize = 0L, // Упрощенно
-                        localPath = uri.toString(),
-                        isImage = true // Упрощенно
-                    )
+                val attachmentEntities = mutableListOf<Attachment>()
+                for (uri in attachments) {
+                    try {
+                        // Копируем файл во внутреннее хранилище
+                        val inputStream = ctx.contentResolver.openInputStream(uri)
+                        if (inputStream != null) {
+                            val fileName = uri.toString().substringAfterLast("/")
+                            val cacheDir = ctx.cacheDir.resolve("attachments")
+                            if (!cacheDir.exists()) cacheDir.mkdirs()
+                            val outFile = cacheDir.resolve("${msgId}_$fileName")
+                            
+                            inputStream.use { input ->
+                                outFile.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            
+                            val mimeType = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
+                            val fileSize = outFile.length()
+                            
+                            attachmentEntities.add(
+                                Attachment(
+                                    messageId = msgId,
+                                    fileName = fileName,
+                                    mimeType = mimeType,
+                                    fileSize = fileSize,
+                                    localPath = outFile.absolutePath,
+                                    isImage = mimeType.startsWith("image/")
+                                )
+                            )
+                            Log.d("ChatVM", "📎 Файл скопирован: ${outFile.absolutePath}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ChatVM", "❌ Ошибка копирования файла: ${e.message}", e)
+                    }
                 }
-                db.chatDao().insertAttachments(attachmentEntities)
-                Log.d("ChatVM", "📎 Вложения сохранены в БД: ${attachments.size}")
+                if (attachmentEntities.isNotEmpty()) {
+                    db.chatDao().insertAttachments(attachmentEntities)
+                    Log.d("ChatVM", "📎 Вложения сохранены в БД: ${attachmentEntities.size}")
+                }
             }
 
             // 5. СРАЗУ обновляем список чатов (чтобы пользователь видел сообщение мгновенно)
@@ -123,8 +151,8 @@ class ChatViewModel(
                 if (realMessageId != msgId && realMessageId.isNotBlank()) {
                     db.chatDao().insertMessage(newMessage.copy(id = realMessageId))
                     // Обновляем messageId у вложений
-                    if (attachments.isNotEmpty()) {
-                        val updatedAttachments = db.chatDao().getAttachmentsForMessage(msgId).map {
+                    if (attachmentEntities.isNotEmpty()) {
+                        val updatedAttachments = attachmentEntities.map {
                             it.copy(messageId = realMessageId)
                         }
                         db.chatDao().insertAttachments(updatedAttachments)
