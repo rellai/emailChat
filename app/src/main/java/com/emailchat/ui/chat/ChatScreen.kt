@@ -71,19 +71,28 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-                    }
-                },
-                title = { Text(id.substringBefore("@")) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = panelColor.copy(alpha = 0.95f),
-                    titleContentColor = if (isDark) Color.White else Color.Black,
-                    navigationIconContentColor = if (isDark) Color.White else Color.Black
-                )
-            )
+            // ✅ Скругления в обратную сторону (сверху) + небольшой отступ
+            Box(modifier = Modifier.padding(top = 4.dp, start = 4.dp, end = 4.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    shadowElevation = 8.dp,
+                    color = panelColor.copy(alpha = 0.98f)
+                ) {
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                            }
+                        },
+                        title = { Text(id.substringBefore("@")) },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            titleContentColor = if (isDark) Color.White else Color.Black,
+                            navigationIconContentColor = if (isDark) Color.White else Color.Black
+                        )
+                    )
+                }
+            }
         }
     ) { padding ->
         Box(
@@ -91,7 +100,7 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ✅ Фоновое изображение
+            // Фоновое изображение
             Image(
                 painter = painterResource(
                     id = if (isDark) R.drawable.background_hd_dark else R.drawable.background_hd
@@ -106,7 +115,7 @@ fun ChatScreen(
                     state = ls,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp), // Уменьшен отступ
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                     reverseLayout = true 
                 ) {
                     itemsIndexed(reversedMsgs, key = { _, m -> m.id }) { index, msg ->
@@ -123,75 +132,79 @@ fun ChatScreen(
                     }
                 }
 
-                Surface(
-                    color = panelColor,
-                    tonalElevation = 4.dp,
-                    shadowElevation = 16.dp
-                ) {
-                    Column {
-                        if (atts.isNotEmpty()) {
-                            LazyRow(
-                                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                itemsIndexed(atts) { _, uri ->
-                                    Box(modifier = Modifier.size(60.dp)) {
-                                        AsyncImage(
-                                            model = uri,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                        IconButton(
-                                            onClick = { vm.rmAtt(uri) },
-                                            modifier = Modifier.align(Alignment.TopEnd).size(24.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close, 
-                                                null, 
-                                                tint = Color.Red, 
-                                                modifier = Modifier.background(Color.White, CircleShape)
+                // ✅ Скругления в обратную сторону (снизу) + отступ
+                Box(modifier = Modifier.padding(bottom = 6.dp, start = 6.dp, end = 6.dp)) {
+                    Surface(
+                        color = panelColor,
+                        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+                        tonalElevation = 4.dp,
+                        shadowElevation = 16.dp
+                    ) {
+                        Column {
+                            if (atts.isNotEmpty()) {
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    itemsIndexed(atts) { _, uri ->
+                                        Box(modifier = Modifier.size(60.dp)) {
+                                            AsyncImage(
+                                                model = uri,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
+                                                contentScale = ContentScale.Crop
                                             )
+                                            IconButton(
+                                                onClick = { vm.rmAtt(uri) },
+                                                modifier = Modifier.align(Alignment.TopEnd).size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Close, 
+                                                    null, 
+                                                    tint = Color.Red, 
+                                                    modifier = Modifier.background(Color.White, CircleShape)
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = { pickLauncher.launch("*/*") }) {
-                                Icon(Icons.Default.AttachFile, null, tint = Color.Gray)
-                            }
-                            OutlinedTextField(
-                                value = txt,
-                                onValueChange = { txt = it },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("Сообщение", color = Color.Gray) },
-                                maxLines = 5,
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    unfocusedBorderColor = Color.Transparent,
-                                    focusedBorderColor = Color.Transparent,
-                                    unfocusedContainerColor = inputBgColor,
-                                    focusedContainerColor = inputBgColor,
-                                    unfocusedTextColor = if (isDark) Color.White else Color.Black,
-                                    focusedTextColor = if (isDark) Color.White else Color.Black
-                                )
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            val canSend = txt.isNotBlank() || atts.isNotEmpty()
-                            FloatingActionButton(
-                                onClick = { if (canSend) { vm.send(id, txt, atts); txt = "" } },
-                                shape = CircleShape,
-                                containerColor = if (canSend) Color(0xFF517DA2) else Color(0xFFE1E1E1).copy(alpha = if (isDark) 0.2f else 1f),
-                                contentColor = Color.White,
-                                modifier = Modifier.size(48.dp),
-                                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.Send, null)
+                                IconButton(onClick = { pickLauncher.launch("*/*") }) {
+                                    Icon(Icons.Default.AttachFile, null, tint = Color.Gray)
+                                }
+                                OutlinedTextField(
+                                    value = txt,
+                                    onValueChange = { txt = it },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("Сообщение", color = Color.Gray) },
+                                    maxLines = 5,
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedBorderColor = Color.Transparent,
+                                        focusedBorderColor = Color.Transparent,
+                                        unfocusedContainerColor = inputBgColor,
+                                        focusedContainerColor = inputBgColor,
+                                        unfocusedTextColor = if (isDark) Color.White else Color.Black,
+                                        focusedTextColor = if (isDark) Color.White else Color.Black
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val canSend = txt.isNotBlank() || atts.isNotEmpty()
+                                FloatingActionButton(
+                                    onClick = { if (canSend) { vm.send(id, txt, atts); txt = "" } },
+                                    shape = CircleShape,
+                                    containerColor = if (canSend) Color(0xFF517DA2) else Color(0xFFE1E1E1).copy(alpha = if (isDark) 0.2f else 1f),
+                                    contentColor = Color.White,
+                                    modifier = Modifier.size(48.dp),
+                                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.Send, null)
+                                }
                             }
                         }
                     }
@@ -224,7 +237,7 @@ fun MessageBubble(m: Message, vm: ChatViewModel, showTail: Boolean, isDark: Bool
         modifier = Modifier.fillMaxWidth().padding(
             start = if (m.isOutgoing) 64.dp else 0.dp,
             end = if (m.isOutgoing) 0.dp else 64.dp,
-            bottom = if (showTail) 4.dp else 1.dp // Уменьшен отступ
+            bottom = if (showTail) 4.dp else 1.dp
         ),
         horizontalArrangement = if (m.isOutgoing) Arrangement.End else Arrangement.Start
     ) {
@@ -233,7 +246,7 @@ fun MessageBubble(m: Message, vm: ChatViewModel, showTail: Boolean, isDark: Bool
             shape = bubbleShape,
             shadowElevation = 3.dp
         ) {
-            Column(modifier = Modifier.padding(vertical = 5.dp, horizontal = 10.dp)) { // Уменьшен внутренний отступ
+            Column(modifier = Modifier.padding(vertical = 5.dp, horizontal = 10.dp)) {
                 if (m.text.isNotBlank()) {
                     Text(
                         text = m.text, 
