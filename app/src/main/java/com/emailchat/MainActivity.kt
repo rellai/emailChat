@@ -113,6 +113,13 @@ class MainActivity : ComponentActivity() {
                         navController.navigate(Screen.ChatList.route) {
                             popUpTo(Screen.Setup.route) { inclusive = true }
                         }
+                    },
+                    onCancel = {
+                        // ✅ Если аккаунт уже настроен, просто возвращаемся назад. 
+                        // Если нет - ничего не делаем или закрываем приложение.
+                        if (isSetup) {
+                            navController.popBackStack()
+                        }
                     }
                 )
             }
@@ -129,15 +136,7 @@ class MainActivity : ComponentActivity() {
                     onSync = { },
                     onNewChat = { },
                     onSettings = {
-                        activityScope.launch {
-                            appContext.dataStore.edit { prefs ->
-                                prefs.clear()
-                            }
-                        }
-                        isSetup = false
-                        navController.navigate(Screen.Setup.route) {
-                            popUpTo(Screen.ChatList.route) { inclusive = true }
-                        }
+                        navController.navigate(Screen.Setup.route)
                     }
                 )
             }
