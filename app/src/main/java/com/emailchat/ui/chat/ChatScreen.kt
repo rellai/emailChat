@@ -71,28 +71,20 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            // ✅ Скругления в обратную сторону (сверху) + небольшой отступ
-            Box(modifier = Modifier.padding(top = 4.dp, start = 4.dp, end = 4.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    shadowElevation = 8.dp,
-                    color = panelColor.copy(alpha = 0.98f)
-                ) {
-                    TopAppBar(
-                        navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-                            }
-                        },
-                        title = { Text(id.substringBefore("@")) },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent,
-                            titleContentColor = if (isDark) Color.White else Color.Black,
-                            navigationIconContentColor = if (isDark) Color.White else Color.Black
-                        )
-                    )
-                }
-            }
+            // ✅ Тулбар без скруглений, стандартный
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                title = { Text(id.substringBefore("@")) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = panelColor.copy(alpha = 0.95f),
+                    titleContentColor = if (isDark) Color.White else Color.Black,
+                    navigationIconContentColor = if (isDark) Color.White else Color.Black
+                )
+            )
         }
     ) { padding ->
         Box(
@@ -132,13 +124,12 @@ fun ChatScreen(
                     }
                 }
 
-                // ✅ Скругления в обратную сторону (снизу) + отступ
-                Box(modifier = Modifier.padding(bottom = 6.dp, start = 6.dp, end = 6.dp)) {
+                // ✅ Нижняя панель со скруглениями со всех сторон и уменьшенными элементами
+                Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Surface(
                         color = panelColor,
-                        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
-                        tonalElevation = 4.dp,
-                        shadowElevation = 16.dp
+                        shape = RoundedCornerShape(28.dp),
+                        shadowElevation = 8.dp
                     ) {
                         Column {
                             if (atts.isNotEmpty()) {
@@ -147,16 +138,16 @@ fun ChatScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     itemsIndexed(atts) { _, uri ->
-                                        Box(modifier = Modifier.size(60.dp)) {
+                                        Box(modifier = Modifier.size(50.dp)) {
                                             AsyncImage(
                                                 model = uri,
                                                 contentDescription = null,
-                                                modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
+                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
                                                 contentScale = ContentScale.Crop
                                             )
                                             IconButton(
                                                 onClick = { vm.rmAtt(uri) },
-                                                modifier = Modifier.align(Alignment.TopEnd).size(24.dp)
+                                                modifier = Modifier.align(Alignment.TopEnd).size(20.dp)
                                             ) {
                                                 Icon(
                                                     Icons.Default.Close, 
@@ -171,19 +162,27 @@ fun ChatScreen(
                             }
 
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 6.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // Иконка вложения (без изменений)
                                 IconButton(onClick = { pickLauncher.launch("*/*") }) {
                                     Icon(Icons.Default.AttachFile, null, tint = Color.Gray)
                                 }
-                                OutlinedTextField(
+
+                                // Уменьшенное текстовое поле
+                                androidx.compose.material3.OutlinedTextField(
                                     value = txt,
                                     onValueChange = { txt = it },
-                                    modifier = Modifier.weight(1f),
-                                    placeholder = { Text("Сообщение", color = Color.Gray) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 40.dp),
+                                    placeholder = { Text("Сообщение", color = Color.Gray, style = MaterialTheme.typography.bodyMedium) },
                                     maxLines = 5,
-                                    shape = RoundedCornerShape(24.dp),
+                                    shape = RoundedCornerShape(20.dp),
+                                    textStyle = MaterialTheme.typography.bodyMedium,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         unfocusedBorderColor = Color.Transparent,
                                         focusedBorderColor = Color.Transparent,
@@ -193,17 +192,20 @@ fun ChatScreen(
                                         focusedTextColor = if (isDark) Color.White else Color.Black
                                     )
                                 )
+
                                 Spacer(modifier = Modifier.width(8.dp))
+
+                                // Уменьшенная кнопка отправки
                                 val canSend = txt.isNotBlank() || atts.isNotEmpty()
                                 FloatingActionButton(
                                     onClick = { if (canSend) { vm.send(id, txt, atts); txt = "" } },
                                     shape = CircleShape,
                                     containerColor = if (canSend) Color(0xFF517DA2) else Color(0xFFE1E1E1).copy(alpha = if (isDark) 0.2f else 1f),
                                     contentColor = Color.White,
-                                    modifier = Modifier.size(48.dp),
+                                    modifier = Modifier.size(42.dp),
                                     elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
                                 ) {
-                                    Icon(Icons.AutoMirrored.Filled.Send, null)
+                                    Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
