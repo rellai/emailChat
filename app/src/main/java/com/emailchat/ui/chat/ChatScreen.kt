@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.emailchat.data.Attachment
-import com.emailchat.data.ChatDao
 import com.emailchat.data.Message
 import com.emailchat.viewmodel.ChatViewModel
 import java.io.File
@@ -44,7 +43,6 @@ fun ChatScreen(
 ) {
     var txt by remember { mutableStateOf("") }
     val ls = rememberLazyListState()
-    // ✅ Явно указываем тип, чтобы компилятор не ругался
     val atts by vm.pendingAtt.collectAsState<List<Uri>>()
     val ctx = LocalContext.current
 
@@ -54,9 +52,14 @@ fun ChatScreen(
         if (uris.isNotEmpty()) vm.addAtt(uris)
     }
 
-    // Автопрокрутка вниз при новых сообщениях
+    // Сортировка: самые новые сообщения должны иметь меньший индекс (быть в начале списка)
+    val reversedMsgs = remember(msgs) { msgs.sortedByDescending { it.timestamp } }
+
+    // ✅ АВТОСКРОЛЛ: При появлении новых сообщений скроллим к самому новому (индекс 0 в reverseLayout)
     LaunchedEffect(msgs.size) {
-        if (msgs.isNotEmpty()) ls.animateScrollToItem(msgs.size - 1)
+        if (msgs.isNotEmpty()) {
+            ls.animateScrollToItem(0)
+        }
     }
 
     Scaffold(
@@ -77,9 +80,11 @@ fun ChatScreen(
                 state = ls,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                // Список растет снизу вверх
+                reverseLayout = true 
             ) {
-                items(msgs, key = { it.id }) { msg ->
+                items(reversedMsgs, key = { it.id }) { msg ->
                     MessageBubble(m = msg, vm = vm)
                 }
             }
@@ -113,7 +118,7 @@ fun ChatScreen(
                 }
             }
 
-            // Поле ввода + кнопка отправки
+            // Поле ввода
             val canSend = txt.isNotBlank() || atts.isNotEmpty()
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -131,7 +136,6 @@ fun ChatScreen(
                     shape = MaterialTheme.shapes.large
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                // ✅ В M3 FAB нет параметра enabled, управляем цветом и логикой внутри onClick
                 FloatingActionButton(
                     onClick = {
                         if (canSend) {
@@ -151,7 +155,6 @@ fun ChatScreen(
 
 @Composable
 fun MessageBubble(m: Message, vm: ChatViewModel) {
-    // Получаем вложения из БД через Flow
     val dbAttachments by vm.getAttachmentsForMessage(m.id).collectAsState(initial = emptyList())
     
     Row(
@@ -168,21 +171,16 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
                     Text(text = m.text, style = MaterialTheme.typography.bodyMedium)
                 }
                 
-                // Отображение вложений
                 if (dbAttachments.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(dbAttachments) { att ->
-                            Box(modifier = Modifier.size(80.dp)) {
+                            Box(modifier = Modifier.size(120.dp).padding(4.dp)) {
                                 if (att.isImage) {
                                     val imageFile = File(att.localPath)
-                                    val imageModel = if (imageFile.exists()) {
-                                        imageFile
-                                    } else {
-                                        Uri.parse(att.localPath)
-                                    }
+                                    val imageModel = if (imageFile.exists()) imageFile else Uri.parse(att.localPath)
                                     
                                     AsyncImage(
                                         model = ImageRequest.Builder(LocalContext.current)
@@ -193,23 +191,24 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
                                         modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
                                         contentScale = ContentScale.Crop
                                     )
-                                    Icon(
-                                        imageVector = Icons.Default.Image,
-                                        contentDescription = "Image",
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .size(20.dp)
-                                            .background(MaterialTheme.colorScheme.surface, CircleShape),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
                                 } else {
-                                    // Не изображения - показываем иконку файла
-                                    Icon(
-                                        imageVector = Icons.Default.AttachFile,
-                                        contentDescription = att.fileName,
-                                        modifier = Modifier.fillMaxSize(),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Column(
+                                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.small).padding(4.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AttachFile,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        Text(
+                                            text = att.fileName,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
                                 }
                             }
                         }
