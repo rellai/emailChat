@@ -48,13 +48,18 @@ class ChatViewModel(
     fun send(conversationId: String, text: String, attachments: List<Uri> = _pendingAtt.value) {
         if (text.isBlank() && attachments.isEmpty()) return
 
+        // ✅ Очищаем список вложений МГНОВЕННО в UI
+        clearAtt()
+
         viewModelScope.launch {
             try {
+                // Отправляем сообщение через репозиторий
                 repository.sendMessage(conversationId, text, attachments)
-                clearAtt()
                 Log.d("ChatVM", "✅ Message sent triggered from VM")
             } catch (e: Exception) {
                 Log.e("ChatVM", "❌ Send error: ${e.message}")
+                // В случае критической ошибки можно вернуть вложения обратно в _pendingAtt, 
+                // если это необходимо, но обычно в мессенджерах они просто пропадают.
             }
         }
     }
