@@ -19,6 +19,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.*
 import com.emailchat.data.ChatDatabase
+import com.emailchat.data.ChatRepository
 import com.emailchat.data.PreferencesKeys
 import com.emailchat.data.dataStore
 import com.emailchat.service.EmailSyncService
@@ -38,6 +39,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val database by lazy { ChatDatabase.getInstance(this) }
+    private val repository by lazy { ChatRepository(applicationContext, database) }
     private val activityScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -47,7 +49,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Запрос разрешения на уведомления (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
                     this, Manifest.permission.POST_NOTIFICATIONS
@@ -57,7 +58,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Запуск службы синхронизации (IMAP IDLE)
         EmailSyncService.start(this)
 
         setContent {
@@ -75,17 +75,14 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun EmailChatApp() {
         val navController = rememberNavController()
-        // ✅ Используем явный applicationContext
         val appContext = this@MainActivity.applicationContext
 
         var isSetup by remember { mutableStateOf(false) }
 
-        // Проверяем, настроен ли аккаунт при старте
         LaunchedEffect(Unit) {
             isSetup = appContext.dataStore.data.first()[PreferencesKeys.EMAIL] != null
         }
 
-        // Factory для SetupViewModel
         val setupViewModel: SetupViewModel = viewModel(
             factory = object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -95,12 +92,11 @@ class MainActivity : ComponentActivity() {
             }
         )
 
-        // Factory для ChatViewModel
         val chatViewModel: ChatViewModel = viewModel(
             factory = object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return ChatViewModel(appContext, database) as T
+                    return ChatViewModel(repository) as T
                 }
             }
         )
@@ -109,7 +105,6 @@ class MainActivity : ComponentActivity() {
             navController = navController,
             startDestination = if (isSetup) Screen.ChatList.route else Screen.Setup.route
         ) {
-            // Экран настройки аккаунта
             composable(Screen.Setup.route) {
                 SetupScreen(
                     vm = setupViewModel,
@@ -122,7 +117,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Список чатов
             composable(Screen.ChatList.route) {
                 val conversations by chatViewModel.conversations.collectAsState(initial = emptyList())
 
@@ -132,16 +126,12 @@ class MainActivity : ComponentActivity() {
                         chatViewModel.selectConversation(email)
                         navController.navigate(Screen.Chat.createRoute(email))
                     },
-                    onSync = {
-                        // Принудительная синхронизация (опционально, IDLE работает автоматически)
-                        // Можно добавить вызов в ViewModel если нужно
-                    },
-                    onNewChat = { /* Обработано внутри ChatListScreen диалогом */ },
+                    onSync = { },
+                    onNewChat = { },
                     onSettings = {
-                        // ✅ Сброс настроек и возврат к экрану входа
                         activityScope.launch {
                             appContext.dataStore.edit { prefs ->
-                                prefs.clear() // Удаляем все ключи аккаунта
+                                prefs.clear()
                             }
                         }
                         isSetup = false
@@ -152,7 +142,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Экран чата
             composable(Screen.Chat.route) { backStackEntry ->
                 val email = backStackEntry.arguments?.getString("email") ?: return@composable
                 val messages by chatViewModel.getMessages(email).collectAsState(initial = emptyList())
@@ -169,15 +158,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Очищаем скоуп, чтобы избежать утечек
         activityScope.cancel()
-        // Не останавливаем EmailSyncService здесь — он должен жить в фоне
     }
 }
-
-// ═══════════════════════════════════════════════════════════
-// 🧭 Навигация: определение экранов
-// ═══════════════════════════════════════════════════════════
 
 sealed class Screen(val route: String) {
     object Setup : Screen("setup")

@@ -15,7 +15,6 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.emailchat.MainActivity
-// ✅ Явные импорты с алиасами для избежания конфликтов
 import com.emailchat.data.Attachment as DbAttachment
 import com.emailchat.data.ChatDao
 import com.emailchat.data.ChatDatabase
@@ -48,7 +47,7 @@ class EmailSyncService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "🚀 onStartCommand вызван")
+        Log.d(TAG, "🚀 onStartCommand")
         startForegroundNotification()
         startIdleSync()
         return START_STICKY
@@ -62,15 +61,13 @@ class EmailSyncService : Service() {
 
         val notification = NotificationCompat.Builder(this, "email_sync_channel")
             .setContentTitle("Email Chat")
-            .setContentText("Слушаем входящие сообщения...")
+            .setContentText("Синхронизация сообщений активна")
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
 
         startForeground(1, notification)
-        Log.d(TAG, "📢 Foreground уведомление показано")
     }
 
     private fun startIdleSync() {
@@ -78,98 +75,101 @@ class EmailSyncService : Service() {
             try {
                 val prefs = applicationContext.dataStore.data.first()
                 val email = prefs[PreferencesKeys.EMAIL] ?: run {
-                    Log.w(TAG, "⚠️ Email не найден в настройках. Сервис остановлен.")
                     stopSelf()
                     return@launch
                 }
-                val password = prefs[PreferencesKeys.PASSWORD] ?: run {
-                    Log.w(TAG, "⚠️ Пароль не найден в настройках.")
-                    return@launch
-                }
-                val displayName = prefs[PreferencesKeys.DISPLAY_NAME] ?: email.substringBefore("@")
-
+                val password = prefs[PreferencesKeys.PASSWORD] ?: return@launch
+                
                 val account = EmailAccount(
                     email = email,
                     password = password,
-                    displayName = displayName,
-                    imapHost = prefs[PreferencesKeys.IMAP_HOST]?.takeIf { it.isNotBlank() }
-                        ?: "imap.${email.substringAfter("@")}",
+                    displayName = prefs[PreferencesKeys.DISPLAY_NAME] ?: email.substringBefore("@"),
+                    imapHost = prefs[PreferencesKeys.IMAP_HOST]?.takeIf { it.isNotBlank() } ?: "imap.${email.substringAfter("@")}",
                     imapPort = prefs[PreferencesKeys.IMAP_PORT] ?: 993,
                     imapUseSSL = prefs[PreferencesKeys.IMAP_USE_SSL] ?: true,
-                    smtpHost = prefs[PreferencesKeys.SMTP_HOST]?.takeIf { it.isNotBlank() }
-                        ?: "smtp.${email.substringAfter("@")}",
+                    smtpHost = prefs[PreferencesKeys.SMTP_HOST]?.takeIf { it.isNotBlank() } ?: "smtp.${email.substringAfter("@")}",
                     smtpPort = prefs[PreferencesKeys.SMTP_PORT] ?: 465,
                     smtpUseSSL = prefs[PreferencesKeys.SMTP_USE_SSL] ?: true
                 )
 
-                Log.d(TAG, "📡 Инициализация IDLE: ${account.imapHost}:${account.imapPort}")
                 val db = ChatDatabase.getInstance(applicationContext)
 
                 idleManager = ImapIdleManager(account, applicationContext) { newMessages ->
-                    Log.d(TAG, "📥 Callback: получено ${newMessages.size} сообщений от IDLE")
                     serviceScope.launch {
                         saveMessages(newMessages, account.email, db.chatDao())
                     }
                 }
 
                 idleManager?.start()
-                Log.d(TAG, "✅ ImapIdleManager запущен")
-
             } catch (e: Exception) {
-                Log.e(TAG, "💥 Критическая ошибка инициализации IDLE: ${e.message}", e)
+                Log.e(TAG, "Sync error: ${e.message}")
             }
         }
     }
 
     private suspend fun saveMessages(msgs: List<ReceivedMessage>, myEmail: String, dao: ChatDao) {
-        Log.d(TAG, "💾 Начинаем сохранение ${msgs.size} сообщений...")
         if (msgs.isEmpty()) return
-
-        val dbMessages = mutableListOf<DbMessage>()
+        val myEmailLower = myEmail.lowercase()
 
         for (msg in msgs) {
-            // Проверка на дубликаты
-            if (dao.getMessage(msg.messageId) != null) {
-                Log.d(TAG, "⏭ Дубликат, пропускаем: ${msg.messageId}")
-                continue
+            val msgId = msg.messageId.lowercase()
+            val fromEmail = msg.fromEmail.lowercase()
+            val toEmail = msg.toEmail.lowercase()
+
+            // 1. Определяем, является ли сообщение исходящим
+            val isOutgoing = fromEmail == myEmailLower
+
+            // 2. Определяем ID беседы (с кем общаемся)
+            val effectiveConversationId = if (isOutgoing) {
+                // Если я отправил сам себе, то беседа со мной
+                if (toEmail == myEmailLower) myEmailLower else toEmail
+            } else {
+                // Если пришло мне, то беседа с отправителем
+                fromEmail
             }
 
-            val isOutgoing = msg.fromEmail == myEmail
-            val conversationId = if (isOutgoing) msg.toEmail else msg.fromEmail
+            if (effectiveConversationId.isBlank()) continue
 
-            if (conversationId.isBlank()) {
-                Log.w(TAG, "⚠️ Пустой conversationId для сообщения ${msg.messageId}, пропускаем")
-                continue
+            // 3. Проверяем дубликат
+            val existing = dao.getMessage(msgId)
+            if (existing != null) {
+                // Если сообщение уже есть (было сохранено при отправке), 
+                // обновляем только serverUid (для IMAP)
+                if (existing.serverUid.isBlank() && msg.serverUid.isNotBlank()) {
+                    dao.insertMessage(existing.copy(serverUid = msg.serverUid))
+                    Log.d(TAG, "🔄 UID обновлен для $msgId")
+                }
+                continue 
             }
 
+            // 4. Сохраняем новое сообщение
             val dbMsg = DbMessage(
-                id = msg.messageId,
-                conversationId = conversationId,
+                id = msgId,
+                conversationId = effectiveConversationId,
                 text = msg.text,
                 timestamp = msg.timestamp,
                 isOutgoing = isOutgoing,
-                isRead = false,
+                isRead = isOutgoing, // Свои сообщения прочитаны
                 serverUid = msg.serverUid,
-                fromEmail = msg.fromEmail,
-                toEmail = msg.toEmail
+                fromEmail = fromEmail,
+                toEmail = toEmail
             )
-            dbMessages.add(dbMsg)
+            dao.insertMessage(dbMsg)
 
-            // Обновляем чат (увеличиваем unread только для входящих)
-            val existingConv = dao.getConversation(conversationId)
+            // 5. Обновляем беседу
+            val existingConv = dao.getConversation(effectiveConversationId)
             dao.insertConversation(DbConversation(
-                id = conversationId,
-                lastMessage = msg.text.take(100),
+                id = effectiveConversationId,
+                lastMessage = if (msg.text.isBlank() && msg.attachments.isNotEmpty()) "📎 Вложение" else msg.text.take(100),
                 lastMessageDate = msg.timestamp,
                 unreadCount = if (isOutgoing) (existingConv?.unreadCount ?: 0) else (existingConv?.unreadCount ?: 0) + 1,
-                contactName = conversationId.substringBefore("@")
+                contactName = existingConv?.contactName ?: effectiveConversationId.substringBefore("@")
             ))
 
-            // Сохраняем вложения
+            // 6. Сохраняем вложения
             for (att in msg.attachments) {
                 dao.insertAttachment(DbAttachment(
-                    id = UUID.randomUUID().toString(),
-                    messageId = msg.messageId,
+                    messageId = msgId,
                     fileName = att.fileName,
                     mimeType = att.mimeType,
                     fileSize = att.fileSize,
@@ -177,53 +177,37 @@ class EmailSyncService : Service() {
                     isImage = att.isImage
                 ))
             }
-        }
-
-        if (dbMessages.isNotEmpty()) {
-            dao.insertMessages(dbMessages)
-            Log.d(TAG, "✅ Успешно сохранено ${dbMessages.size} сообщений в Room")
-        } else {
-            Log.d(TAG, "⚠️ Нет новых сообщений для сохранения (все дубли или ошибки)")
+            Log.d(TAG, "✅ Новое сообщение сохранено: $msgId (беседа: $effectiveConversationId)")
         }
     }
 
     private fun registerNetworkCallback() {
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
-                super.onLost(network)
-                Log.w(TAG, "📉 Сеть потеряна. Останавливаем IDLE до восстановления.")
                 serviceScope.launch { idleManager?.stop() }
             }
-
             override fun onAvailable(network: Network) {
-                super.onAvailable(network)
-                Log.d(TAG, "📈 Сеть доступна. Перезапускаем IDLE.")
                 serviceScope.launch {
                     idleManager?.stop()
                     idleManager?.start()
                 }
             }
         }
-
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         connectivityManager.registerNetworkCallback(request, networkCallback)
-        Log.d(TAG, "🌐 NetworkCallback зарегистрирован")
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "🛑 Сервис уничтожается")
         serviceScope.launch {
             idleManager?.stop()
             idleManager = null
         }
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback)
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Ошибка отписки от NetworkCallback: ${e.message}")
-        }
+        } catch (e: Exception) {}
         serviceScope.cancel()
     }
 
@@ -233,12 +217,8 @@ class EmailSyncService : Service() {
                 "email_sync_channel",
                 "Email Sync Service",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Держит IMAP IDLE соединение для мгновенной доставки сообщений"
-                setShowBadge(false)
-            }
+            )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-            Log.d(TAG, "📢 Канал уведомлений создан")
         }
     }
 

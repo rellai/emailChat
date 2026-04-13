@@ -179,9 +179,9 @@ fun MessageBubble(m: Message, vm: ChatViewModel) {
                                 if (att.isImage) {
                                     val imageFile = File(att.localPath)
                                     val imageModel = if (imageFile.exists()) {
-                                        imageFile as Any
+                                        imageFile
                                     } else {
-                                        att.localPath
+                                        Uri.parse(att.localPath)
                                     }
                                     
                                     AsyncImage(

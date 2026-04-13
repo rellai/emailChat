@@ -8,6 +8,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.io.File
+import java.io.InputStream
 import java.util.*
 import java.util.UUID
 import javax.mail.*
@@ -17,14 +18,23 @@ import javax.mail.event.MessageCountEvent
 import javax.mail.internet.*
 
 data class ReceivedAttachment(
-    val fileName: String, val mimeType: String, val fileSize: Long,
-    val localPath: String, val isImage: Boolean = mimeType.startsWith("image/")
+    val fileName: String, 
+    val mimeType: String, 
+    val fileSize: Long,
+    val localPath: String, 
+    val isImage: Boolean = mimeType.startsWith("image/")
 )
 
 data class ReceivedMessage(
-    val messageId: String, val fromEmail: String, val fromName: String,
-    val toEmail: String, val text: String, val subject: String,
-    val timestamp: Long, val serverUid: String, val isChatMessage: Boolean,
+    val messageId: String, 
+    val fromEmail: String, 
+    val fromName: String,
+    val toEmail: String, 
+    val text: String, 
+    val subject: String,
+    val timestamp: Long, 
+    val serverUid: String, 
+    val isChatMessage: Boolean,
     val attachments: List<ReceivedAttachment> = emptyList()
 )
 
@@ -96,39 +106,29 @@ class ImapIdleManager(
             put("mail.imap.connectiontimeout", "20000")
             put("mail.imap.timeout", "30000")
             put("mail.imap.idle.timeout", "600000")
+            
+            // Уменьшение варнингов hiddenapi
+            put("mail.imap.ssl.protocols", "TLSv1.2 TLSv1.3")
+            put("mail.imap.ssl.trust", account.imapHost)
         }
         val session = Session.getInstance(props)
 
         store = session.getStore("imap") as IMAPStore
         Log.d(TAG, "Логин: ${account.email}")
         store?.connect(account.imapHost, account.email, account.password)
-        Log.d(TAG, "Авторизация успешна")
 
-        folder = store?.getFolder("INBOX") as? IMAPFolder ?: throw IllegalStateException("INBOX folder not found")
-
+        folder = store?.getFolder("INBOX") as? IMAPFolder ?: throw IllegalStateException("INBOX not found")
         folder?.open(Folder.READ_ONLY)
-        Log.d(TAG, "Папка INBOX открыта. Всего сообщений: ${folder?.messageCount}")
 
         folder?.addMessageCountListener(object : MessageCountAdapter() {
             override fun messagesAdded(e: MessageCountEvent) {
-                Log.d(TAG, "Событиe messagesAdded: ${e.messages.size} новых")
-                if (!isRunning) {
-                    Log.w(TAG, "Менеджер остановлен, пропускаем обработку")
-                    return
-                }
+                if (!isRunning) return
                 scope.launch {
                     try {
-                        val new = e.messages.mapNotNull { msg ->
-                            Log.d(TAG, "Парсинг сообщения...")
-                            parseMessage(msg)
-                        }
-                        Log.d(TAG, "Распарсено ${new.size} сообщений (после фильтрации)")
-                        if (new.isNotEmpty()) {
-                            Log.d(TAG, "Передача в callback...")
-                            onNewMessages(new)
-                        }
+                        val new = e.messages.mapNotNull { msg -> parseMessage(msg) }
+                        if (new.isNotEmpty()) onNewMessages(new)
                     } catch (ex: Exception) {
-                        Log.e(TAG, "Ошибка обработки: ${ex.message}", ex)
+                        Log.e(TAG, "Error processing new messages: ${ex.message}")
                     }
                 }
             }
@@ -137,42 +137,25 @@ class ImapIdleManager(
 
     private fun parseMessage(msg: Message): ReceivedMessage? {
         return try {
-            val fromStr = msg.from?.firstOrNull()?.toString() ?: run {
-                Log.w(TAG, "Нет отправителя, пропускаем")
-                return null
-            }
+            val fromStr = msg.from?.firstOrNull()?.toString() ?: return null
             val from = InternetAddress.parse(fromStr)[0]
             val to = msg.getRecipients(javax.mail.Message.RecipientType.TO)?.firstOrNull()?.let {
                 InternetAddress.parse(it.toString())[0]
             }
 
-            val contactEmail = if (from.address == account.email && to != null) {
-                to.address
-            } else {
-                from.address
-            }
-
-            if (contactEmail == account.email && msg.getHeader("X-Email-Chat").isNullOrEmpty()) {
-                Log.d(TAG, "Пропущено письмо самому себе без маркера чата")
-                return null
-            }
+            val isChat = msg.getHeader("X-Email-Chat")?.isNotEmpty() == true
+            if (!isChat) return null
 
             val content = extractContentAndAttachments(msg)
-            val isChat = msg.getHeader("X-Email-Chat")?.isNotEmpty() == true
-            val acceptMessage = isChat
-
-            if (!acceptMessage) {
-                Log.d(TAG, "Пропущено письмо без маркера X-Email-Chat")
-                return null
-            }
-
-            Log.d(TAG, "Сообщение принято: from=${from.address}, to=${to?.address}, chat=$isChat")
+            val msgId = msg.getHeader("Message-ID")?.firstOrNull()?.trim('<', '>', ' ')?.lowercase() ?: ""
+            
+            Log.d(TAG, "Parsed msgId=$msgId, textLen=${content.text.length}, attCount=${content.attachments.size}")
 
             ReceivedMessage(
-                messageId = msg.getHeader("Message-ID")?.firstOrNull()?.trim('<', '>') ?: "",
-                fromEmail = from.address,
+                messageId = msgId,
+                fromEmail = from.address.lowercase(),
                 fromName = from.personal ?: from.address.substringBefore("@"),
-                toEmail = to?.address ?: "",
+                toEmail = to?.address?.lowercase() ?: "",
                 text = content.text,
                 subject = msg.subject ?: "",
                 timestamp = msg.sentDate?.time ?: System.currentTimeMillis(),
@@ -181,45 +164,84 @@ class ImapIdleManager(
                 attachments = content.attachments
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Parse error: ${e.message}", e)
+            Log.e(TAG, "Parse error: ${e.message}")
             null
         }
     }
 
     private fun extractContentAndAttachments(msg: Message): ContentExtractionResult {
-        var text = ""
+        val textBuilder = StringBuilder()
         val attachments = mutableListOf<ReceivedAttachment>()
         val attDir = File(context.filesDir, "attachments").apply { if (!exists()) mkdirs() }
 
-        try {
-            when (val content = msg.content) {
-                is String -> text = content
-                is MimeMultipart -> {
-                    for (i in 0 until content.count) {
-                        val part = content.getBodyPart(i)
-                        if (part.isMimeType("text/plain")) {
-                            text = part.content.toString()
-                            Log.d(TAG, "Извлечён текст: ${text.take(50)}...")
-                        } else if (Part.ATTACHMENT.equals(part.disposition, true) || part.fileName != null) {
-                            val rawFileName = part.fileName ?: "attachment_$i"
-                            val fileName = MimeUtility.decodeText(rawFileName)
-                            val mimeType = part.contentType?.split(";")?.firstOrNull()?.trim() ?: "application/octet-stream"
-                            val safeName = fileName.replace(Regex("[^a-zA-Z0-9_.-]"), "_").take(80)
-                            val file = File(attDir, "${UUID.randomUUID()}_$safeName")
-
-                            part.inputStream?.use { input ->
-                                file.outputStream().use { output -> input.copyTo(output) }
-                            }
-                            attachments.add(ReceivedAttachment(fileName, mimeType, file.length(), file.absolutePath, mimeType.startsWith("image/")))
-                            Log.d(TAG, "Вложение сохранено: $fileName (${file.length()} байт)")
+        fun parsePart(part: Part) {
+            val contentType = part.contentType?.lowercase() ?: ""
+            val disposition = part.disposition
+            val rawFileName = part.fileName
+            val fileName = rawFileName?.let { 
+                try { MimeUtility.decodeText(it) } catch (e: Exception) { it }
+            }
+            
+            val isAttachment = Part.ATTACHMENT.equals(disposition, true)
+            val isInline = Part.INLINE.equals(disposition, true)
+            
+            if (part.isMimeType("text/plain") && !isAttachment && fileName == null) {
+                val content = part.content
+                val text = when (content) {
+                    is String -> content
+                    is InputStream -> content.bufferedReader().use { it.readText() }
+                    else -> content.toString()
+                }
+                textBuilder.append(text)
+            } else if (part.isMimeType("text/html") && !isAttachment && fileName == null) {
+                if (textBuilder.isEmpty()) {
+                    val content = part.content
+                    val html = when (content) {
+                        is String -> content
+                        is InputStream -> content.bufferedReader().use { it.readText() }
+                        else -> content.toString()
+                    }
+                    val stripped = html.replace(Regex("<[^>]*>"), " ").replace("&nbsp;", " ").trim()
+                    textBuilder.append(stripped)
+                }
+            } else if (part.isMimeType("multipart/*")) {
+                val mp = part.content as MimeMultipart
+                for (i in 0 until mp.count) {
+                    parsePart(mp.getBodyPart(i))
+                }
+            } else if (part.isMimeType("message/rfc822")) {
+                parsePart(part.content as Part)
+            } else {
+                if (isAttachment || isInline || fileName != null) {
+                    val mimeType = contentType.split(";").firstOrNull()?.trim() ?: "application/octet-stream"
+                    val extension = when {
+                        mimeType.contains("jpeg") || mimeType.contains("jpg") -> ".jpg"
+                        mimeType.contains("png") -> ".png"
+                        mimeType.contains("gif") -> ".gif"
+                        mimeType.contains("pdf") -> ".pdf"
+                        else -> ""
+                    }
+                    val actualName = fileName ?: "file_${System.currentTimeMillis()}$extension"
+                    val safeName = actualName.replace(Regex("[^a-zA-Z0-9_.-]"), "_")
+                    val file = File(attDir, "${UUID.randomUUID()}_$safeName")
+                    try {
+                        part.inputStream.use { input ->
+                            file.outputStream().use { output -> input.copyTo(output) }
                         }
+                        attachments.add(ReceivedAttachment(
+                            fileName = actualName,
+                            mimeType = mimeType,
+                            fileSize = file.length(),
+                            localPath = file.absolutePath,
+                            isImage = mimeType.startsWith("image/")
+                        ))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Save error $actualName: ${e.message}")
                     }
                 }
-                else -> Log.w(TAG, "Неизвестный тип контента: ${content::class}")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Extract error: ${e.message}", e)
         }
-        return ContentExtractionResult(text, attachments)
+        try { parsePart(msg) } catch (e: Exception) { Log.e(TAG, "Extract error: ${e.message}") }
+        return ContentExtractionResult(textBuilder.toString().trim(), attachments)
     }
 }
