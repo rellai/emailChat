@@ -25,13 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.emailchat.R
-import com.emailchat.data.Attachment
 import com.emailchat.data.Message
 import com.emailchat.viewmodel.ChatViewModel
 import java.io.File

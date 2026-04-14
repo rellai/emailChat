@@ -247,7 +247,7 @@ fun OutlinedTextField(
     helperText: @Composable (() -> Unit)? = null
 ) {
     Column(modifier = modifier) {
-        androidx.compose.material3.OutlinedTextField(
+        OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             label = label,

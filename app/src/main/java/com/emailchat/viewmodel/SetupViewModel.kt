@@ -4,19 +4,14 @@ import android.content.Context
 import android.util.Log
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.emailchat.data.EmailAccount
 import com.emailchat.data.PreferencesKeys
 import com.emailchat.data.dataStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Properties
-import javax.mail.Authenticator
-import javax.mail.PasswordAuthentication
 import javax.mail.Session
-import javax.mail.Transport
 
 // ═══════════════════════════════════════════════════════════
 // 📊 СОСТОЯНИЕ (STATE)
@@ -57,7 +52,6 @@ class SetupViewModel(private val ctx: Context) : ViewModel() {
     suspend fun testConnection(
         email: String,
         password: String,
-        displayName: String,
         imapHost: String,
         imapPort: Int,
         imapSSL: Boolean,

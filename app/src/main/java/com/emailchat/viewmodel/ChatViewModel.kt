@@ -13,7 +13,6 @@ class ChatViewModel(
 ) : ViewModel() {
 
     private val _currentConversation = MutableStateFlow<String?>(null)
-    val currentConversation: StateFlow<String?> = _currentConversation
 
     val conversations: Flow<List<Conversation>> = repository.getConversations()
 
